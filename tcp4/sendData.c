@@ -1,38 +1,40 @@
 #include <stdio.h>
 
-#include <sys/socket.h> // socket函数
-#include <netinet/ip.h> // 结构体ip 头部 和 IP_MAXPACKET
-#include <netinet/tcp.h> // 结构提 TCP 头部
-#include <netdb.h> // 结构提 addrinfo getaddrinfo 和 freeaddrinfo
-#include <net/if.h> // 结构提 ifreq
-#include <sys/ioctl.h> // iotcl 函数
-#include <bits/ioctls.h> // 定义了一些 ioctl函数的cmd参数
+#include <sys/socket.h>  // socket() 函数
+#include <netinet/ip.h>  // 结构体ip 头部 和 IP_MAXPACKET
+#include <netinet/tcp.h> // 结构体tcp 头部
+#include <netdb.h>       // 结构体addrinfo getaddrinfo() 和 freeaddrinfo()
+#include <net/if.h>      // 结构体 ifreq
+#include <sys/ioctl.h>   // ioctl 函数
+#include <bits/ioctls.h> // 定义了一些 ioctl 函数 的cmd参数
+#include <stdlib.h>      //  strcpy()
+#include <string.h>      // 字符串操作 memset()
+#include <unistd.h>      // close()
+#include <arpa/inet.h>   // inet_ntop()
 
-#include <stdlib.h> // strcpy
-#include <string.h> // memset
-#include <unistd.h> // close
-#include <arpa/inet.h> // inet_ntop
 
-#include <errno.h> // perror errno
+
+#include <errno.h>       // perror errno
 
 #define IP4_HDRLEN 20
 #define TCP_HDRLEN 20
+
 
 // 声明函数
 
 int * allocate_intmem(int len);
 char * allocate_strmem(int len);
 uint8_t * allocate_ustrmem(int len);
-uint16_t checksum(uint16_t *addr, int len);
-uint16_t tcp4_checksum(struct ip iphdr, struct tcphdr tcphdr);
-
+uint16_t checksum (uint16_t *addr, int len);
+uint16_t tcp4_checksum (struct ip iphdr, struct tcphdr tcphdr);
 int main(void){
     // 设置常量
     const int on = 1;
-    // 定义变量
+
+    // 定义一些变量
     int sd, status, *ip_flags, *tcp_flags, i;
-    // 目标，源IP，目标IP，网卡接口
-    char *target, *src_ip, *dst_ip, *interface;
+
+    char  *target, *src_ip ,* dst_ip, *interface; // 目标域名或ip 源IP 目的IP 网卡接口
 
     struct ip iphdr;
 
@@ -40,7 +42,7 @@ int main(void){
 
     uint8_t *packet; // 数据包指针
 
-    struct addrinfo hints, *res;
+    struct addrinfo hints ,*res;
 
     struct sockaddr_in *ipv4, sin;
 
@@ -48,52 +50,56 @@ int main(void){
 
     void *tmp;
 
-    // 分配空间
+    // 分配内存空间
     packet = allocate_ustrmem(IP_MAXPACKET);
     interface = allocate_strmem(40);
     target = allocate_strmem(40);
     src_ip = allocate_strmem(INET_ADDRSTRLEN);
     dst_ip = allocate_strmem(INET_ADDRSTRLEN);
-    ip_flags = allocate_strmem(4);
-    tcp_flags = allocate_strmem(8);
+    ip_flags = allocate_intmem(4);
+    tcp_flags = allocate_intmem(8);
 
-    // 指定网卡设备
-    strcpy(interface, "wlan0");
+    // 绑定到指定的网卡
+    strcpy(interface,"wlan0");
 
-    if((sd = socket(AF_INET, SOCK_RAW, IPPROTO_RAW)) < 0){
+    if ((sd = socket(AF_INET, SOCK_RAW, IPPROTO_RAW)) < 0){
         fprintf(stderr, "创建socket失败");
         exit(EXIT_FAILURE);
     }
+
     memset(&ifr, 0, sizeof(ifr));
     snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), "%s", interface);
-    if(ioctl(sd, SIOCGIFINDEX, &ifr)< 0){
-        perror("设置网卡失败");
+    if (ioctl(sd, SIOCGIFINDEX, &ifr) < 0){
+        perror("ioctl error");
         exit(EXIT_FAILURE);
     }
     close(sd);
-    // 设置目标 和 源 IP
+    // 设置目标ip和源ip getaddrinfo
     strcpy(src_ip, "10.100.44.42");
-    strcpy(target, "www.dajiahong.cn");
+    strcpy(target, "10.100.44.48");
 
-    memset(&hints, 0, sizeof(hints));
+    memset(&hints, 0 , sizeof(hints));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = hints.ai_flags | AI_CANONNAME;
-    if((status = getaddrinfo(target, NULL, &hints, &res)) !=0){
+    // 如果是域名的话 解析
+    if ((status = getaddrinfo(target, NULL, &hints, &res)) != 0){
         fprintf(stderr, "ERROR get addrinfo");
         exit(EXIT_FAILURE);
     }
+
     ipv4 = (struct sockaddr_in *)res->ai_addr;
     tmp = &(ipv4->sin_addr);
     if (inet_ntop(AF_INET, tmp, dst_ip, INET_ADDRSTRLEN) == NULL){
         status = errno;
-        fprintf(stderr, 'inet_ntop() failed.\n Error message:%s', strerror(status));
-        exit(EXIT_FAILURE);
+        fprintf (stderr, "inet_ntop() failed.\nError message: %s", strerror (status));
+        exit (EXIT_FAILURE);
     }
     freeaddrinfo(res);
-    // 构造 IP数据包 TCP数据包
+
+    // 构造 ip数据包 TCP数据包
     // ip头部是以32位字节为单位的
-    iphdr.ip_hl = IP4_HDRLEN/ sizeof(uint32_t);
+    iphdr.ip_hl = IP4_HDRLEN / sizeof(uint32_t);
 
     // 指定版本
     iphdr.ip_v = 4;
@@ -104,47 +110,45 @@ int main(void){
     // 指定长度
     iphdr.ip_len = htons(IP4_HDRLEN + TCP_HDRLEN);
 
-    // 指定ID
+    //  指定ID
+
     iphdr.ip_id = htons(0);
 
-    // ???
+    // ?????
     ip_flags[0] = 0;
     ip_flags[1] = 0;
     ip_flags[2] = 0;
     ip_flags[3] = 0;
-    iphdr.ip_off = htons((ip_flags[0] << 15) + (ip_flags[1] << 14)
-    + (ip_flags[2] << 13) + ip_flags[3]);
+    iphdr.ip_off = htons((ip_flags[0] << 15) + (ip_flags[1] << 14) + (ip_flags[2] << 13) + ip_flags[0]);
 
-    // 指定ttl
+    // 指定 ttl
     iphdr.ip_ttl = 255;
 
     // 指定协议
     iphdr.ip_p = IPPROTO_TCP;
 
-    // 设置源IP
-    if((status = inet_pton(AF_INET, src_ip, &(iphdr.ip_src))) !=1 ){
-        fprintf(stderr, "inet_pton failed.\nError message:%s", strerror(status));
-        exit(EXIT_FAILURE);
+    // 设置源ip
+    if ((status = inet_pton(AF_INET, src_ip, &(iphdr.ip_src))) != 1){
+        fprintf (stderr, "inet_pton() failed.\nError message: %s", strerror (status));
+        exit (EXIT_FAILURE);
+    }
+    // 设置目的ip
+    if ((status = inet_pton(AF_INET, dst_ip, &(iphdr.ip_dst))) !=1 ){
+        fprintf (stderr, "inet_pton() failed.\nError message: %s", strerror (status));
+        exit (EXIT_FAILURE);
     }
 
-    // 设置目的IP
-    if((status = inet_pton(AF_INET, dst_ip, &(iphdr.ip_dst))) !=1){
-        fprintf(stderr, "inet_pton failed.\nError message:%s", strerror(status));
-        exit(EXIT_FAILURE);
-    }
     // 设置校验和
     iphdr.ip_sum = 0;
     iphdr.ip_sum = checksum((uint16_t *)&iphdr, IP4_HDRLEN);
 
     // tcp 首部
     // 源端口
-    tcphdr.th_sport = htons(10086);
+    tcphdr.th_sport = htons(src_p);
     // 目的端口
-    tcphdr.th_dport = htons(80);
-
+    tcphdr.th_dport = htons(dst_p);
     // 序列号 32位
     tcphdr.th_seq = htonl(0);
-
     // 确认号 32位
     tcphdr.th_ack = htonl(0);
 
@@ -227,7 +231,7 @@ int main(void){
         exit(EXIT_FAILURE);
     }
 
-    // 释放内存
+    // 释放空间
     close(sd);
     free(packet);
     free(interface);
@@ -236,61 +240,62 @@ int main(void){
     free(dst_ip);
     free(ip_flags);
     free(tcp_flags);
-
     return 0;
 }
 
-int * allocate_intmem(int len){
-    void * tmp;
-    if(len < 0){
-        fprintf(stderr, "len 错误，in allocate_intmem");
+int *allocate_intmem(int len){
+    void *tmp;
+    if (len < 0){
+        fprintf(stderr, "len 不能小于0 in allocate_intmem");
         exit(EXIT_FAILURE);
     }
-    tmp = (int *)malloc(sizeof(int)*len);
-    if(tmp != NULL){
-        // 清除垃圾值
+
+    tmp = (int *)malloc(len * sizeof(int));
+    if (tmp != NULL) {
         memset(tmp, 0, sizeof(tmp));
         return tmp;
     } else{
-        fprintf(stderr, "内存分配失败，in allocate_intmem");
-        exit(EXIT_FAILURE);
+        fprintf(stderr, "内存分配失败 in allocate_intmem");
     }
 }
 
-char * allocate_strmem(int len){
-    void * tmp;
-    if(len < 0){
-        fprintf(stderr, "len 错误，in allocate_strmem");
+char *allocate_strmem(int len){
+    void *tmp;
+    if (len < 0){
+        fprintf(stderr, "len 不能小于0 in allocate_strmem");
         exit(EXIT_FAILURE);
     }
-    tmp = (char *)malloc(sizeof(char)*len);
-    if(tmp != NULL){
-        // 清除垃圾值
+    tmp = (char *)malloc(len * sizeof(char));
+    if (tmp != NULL) {
         memset(tmp, 0, sizeof(tmp));
         return tmp;
     } else{
-        fprintf(stderr, "内存分配失败，in allocate_strmem");
+        fprintf(stderr, "内存分配失败 in allocate_strmem");
         exit(EXIT_FAILURE);
     }
 }
 
 uint8_t * allocate_ustrmem(int len){
-    void * tmp;
-    if(len < 0){
-        fprintf(stderr, "len 错误，in allocate_ustrmem");
+    void *tmp;
+    if (len < 0){
+        fprintf(stderr, "len 不能小于0 in allocate_ustrmem");
         exit(EXIT_FAILURE);
     }
-    tmp = (uint8_t *)malloc(sizeof(uint8_t)*len);
-    if(tmp != NULL){
-        // 清除垃圾值
+    tmp = (uint8_t *)malloc(len * sizeof(uint8_t));
+    if (tmp != NULL) {
         memset(tmp, 0, sizeof(tmp));
         return tmp;
     } else{
-        fprintf(stderr, "内存分配失败，in allocate_ustrmem");
+        fprintf(stderr, "内存分配失败 in allocate_strmem");
         exit(EXIT_FAILURE);
     }
 }
-uint16_t checksum(uint16_t *addr, int len){
+
+
+// Checksum function
+uint16_t
+checksum (uint16_t *addr, int len)
+{
     int nleft = len;
     int sum = 0;
     uint16_t *w = addr;
@@ -311,6 +316,7 @@ uint16_t checksum(uint16_t *addr, int len){
     answer = ~sum;
     return (answer);
 }
+
 uint16_t tcp4_checksum (struct ip iphdr, struct tcphdr tcphdr)
 {
     uint16_t svalue;
